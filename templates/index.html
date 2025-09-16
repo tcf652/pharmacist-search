@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HK Pharmacist Search</title>
+</head>
+<body>
+    <h1>Search Pharmacist in Hong Kong</h1>
+    <input type="text" id="search" placeholder="Enter pharmacist name..." />
+    <button onclick="search()">Search</button>
+    <ul id="results"></ul>
+    <script>
+        function search() {
+            const query = document.getElementById('search').value;
+            fetch(`/search?q=${encodeURIComponent(query)}`)
+                .then(res => res.json())
+                .then(data => {
+                    const ul = document.getElementById('results');
+                    ul.innerHTML = '';
+                    data.forEach(item => {
+                        const li = document.createElement('li');
+                        li.textContent = `${item["Name"]} (Reg. No.: ${item["Reg. No."]}) - ${item["Address"]}`;
+                        ul.appendChild(li);
+                    });
+                });
+        }
+    </script>
+</body>
+</html>
