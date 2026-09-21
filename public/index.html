@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HK Registered Pharmacists Search | PPBHK</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1', 800: '#075985' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .highlight { background-color: #fef08a; padding: 0 2px; border-radius: 2px; }
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <div id="app" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <!-- Header -->
+    <header class="mb-6">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 class="text-2xl sm:text-3xl font-bold text-brand-800 tracking-tight">
+            HK Registered Pharmacists
+          </h1>
+          <p class="text-sm text-slate-500 mt-1">
+            Data from Pharmacy and Poisons Board of Hong Kong (PPBHK)
+          </p>
+        </div>
+        <div class="flex items-center gap-3 text-sm">
+          <span id="metaInfo" class="text-slate-500">Loading…</span>
+          <button id="btnResync" class="px-3 py-1.5 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50" title="Re-scrape latest data from PPBHK">
+            ↻ Re-sync
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Legal Disclaimer -->
+    <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-900">
+      <p class="font-semibold mb-1">⚠️ Personal Data (Privacy) Ordinance Notice</p>
+      <p>
+        The purpose of publishing the list of registered pharmacists is to inform the public that each person named in the list is entitled to practise pharmacy in Hong Kong under the Pharmacy and Poisons Ordinance (Chapter 138).
+        Persons using the personal data therein for an unrelated purpose render themselves liable to action under the Personal Data (Privacy) Ordinance (Chapter 486).
+      </p>
+      <p class="mt-2 text-xs text-amber-700">
+        Official source: <a href="https://www.ppbhk.org.hk/eng/list_pharmacists/list.php" target="_blank" rel="noopener" class="underline">ppbhk.org.hk</a>
+      </p>
+    </div>
+
+    <!-- Search & Filters -->
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5 mb-6">
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+        <div class="md:col-span-5">
+          <label class="block text-xs font-medium text-slate-500 mb-1">Search (Name / Reg. No.)</label>
+          <input id="searchInput" type="search" placeholder="e.g. CHAN, P00581, 陳…" 
+            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-xs font-medium text-slate-500 mb-1">Reg. Year</label>
+          <input id="yearInput" type="text" placeholder="e.g. 2020" maxlength="4"
+            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-brand-500 outline-none" />
+        </div>
+        <div class="md:col-span-3">
+          <label class="block text-xs font-medium text-slate-500 mb-1">Qualification keyword</label>
+          <input id="qualInput" type="text" placeholder="CUHK, HKU, London…"
+            class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-brand-500 outline-none" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-xs font-medium text-slate-500 mb-1">Sort by</label>
+          <select id="sortSelect" class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-brand-500 outline-none bg-white">
+            <option value="name_asc">Name A–Z</option>
+            <option value="name_desc">Name Z–A</option>
+            <option value="date_newest">Reg. Date (Newest)</option>
+            <option value="date_oldest">Reg. Date (Oldest)</option>
+            <option value="reg_asc">Reg. No.</option>
+          </select>
+        </div>
+      </div>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <button id="btnSearch" class="px-4 py-2 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700">Search</button>
+        <button id="btnClear" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">Clear</button>
+        <div class="flex-1"></div>
+        <button id="btnExportCsv" class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">↓ CSV</button>
+        <button id="btnExportJson" class="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">↓ JSON</button>
+      </div>
+    </div>
+
+    <!-- Results summary -->
+    <div class="flex items-center justify-between mb-3 text-sm text-slate-600">
+      <span id="resultCount">—</span>
+      <div class="flex items-center gap-2">
+        <label class="text-xs">Per page</label>
+        <select id="perPageSelect" class="px-2 py-1 rounded border border-slate-300 text-sm">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-slate-200">
+          <thead class="bg-slate-100">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider w-28">Reg. No.</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Name</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Qualifications</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider w-32">Date of Reg.</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody" class="divide-y divide-slate-100">
+            <tr><td colspan="4" class="px-4 py-12 text-center text-slate-400">Loading data…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div id="pagination" class="mt-4 flex flex-wrap items-center justify-center gap-2"></div>
+
+    <!-- Footer -->
+    <footer class="mt-10 pt-6 border-t border-slate-200 text-center text-xs text-slate-400">
+      <p>This is an unofficial mirror for public convenience. Always verify with the official PPBHK list.</p>
+      <p class="mt-1">Built for educational / public-interest use · Data © Pharmacy and Poisons Board of Hong Kong</p>
+    </footer>
+  </div>
+
+  <script>
+    const state = {
+      q: '', year: '', qual: '', sort: 'name_asc',
+      page: 1, perPage: 50, total: 0, totalPages: 0, data: []
+    };
+
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'"');
+    }
+
+    function highlight(text, term) {
+      if (!term || !text) return escapeHtml(text);
+      const re = new RegExp('(' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+      return escapeHtml(text).replace(re, '<span class="highlight">$1</span>');
+    }
+
+    function nameParts(name) {
+      const lines = (name || '').split('\n');
+      return { eng: lines[0] || '', chi: lines.slice(1).join(' ') || '' };
+    }
+
+    async function fetchMeta() {
+      try {
+        const res = await fetch('/api/meta');
+        const meta = await res.json();
+        const d = meta.last_updated ? new Date(meta.last_updated).toLocaleString() : 'never';
+        $('#metaInfo').textContent = `${meta.count || 0} records · Updated: ${d}`;
+      } catch (e) {
+        $('#metaInfo').textContent = 'Meta unavailable';
+      }
+    }
+
+    async function search() {
+      state.q = $('#searchInput').value.trim();
+      state.year = $('#yearInput').value.trim();
+      state.qual = $('#qualInput').value.trim();
+      state.sort = $('#sortSelect').value;
+      state.perPage = parseInt($('#perPageSelect').value, 10);
+
+      const params = new URLSearchParams({
+        q: state.q, year: state.year, qual: state.qual,
+        sort: state.sort, page: state.page, per_page: state.perPage
+      });
+
+      const tbody = $('#resultsBody');
+      tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-center text-slate-400">Searching…</td></tr>';
+
+      try {
+        const res = await fetch('/api/pharmacists?' + params);
+        const json = await res.json();
+        state.data = json.data || [];
+        state.total = json.total || 0;
+        state.totalPages = json.total_pages || 0;
+        state.page = json.page || 1;
+
+        $('#resultCount').textContent = `${state.total.toLocaleString()} result${state.total !== 1 ? 's' : ''}`;
+
+        if (state.data.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-12 text-center text-slate-400">No matching pharmacists found.</td></tr>';
+        } else {
+          tbody.innerHTML = state.data.map(r => {
+            const { eng, chi } = nameParts(r.name);
+            return `<tr class="hover:bg-brand-50/50 transition-colors">
+              <td class="px-4 py-3 font-mono text-sm text-brand-700">${highlight(r.reg_no, state.q)}</td>
+              <td class="px-4 py-3">
+                <div class="font-medium">${highlight(eng, state.q)}</div>
+                ${chi ? `<div class="text-sm text-slate-500">${highlight(chi, state.q)}</div>` : ''}
+              </td>
+              <td class="px-4 py-3 text-sm text-slate-600 max-w-md">${highlight(r.qualifications, state.qual || state.q)}</td>
+              <td class="px-4 py-3 text-sm whitespace-nowrap">${escapeHtml(r.reg_date)}</td>
+            </tr>`;
+          }).join('');
+        }
+        renderPagination();
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="4" class="px-4 py-8 text-center text-red-500">Error: ${escapeHtml(e.message)}. Run scraper first?</td></tr>`;
+      }
+    }
+
+    function renderPagination() {
+      const el = $('#pagination');
+      if (state.totalPages <= 1) { el.innerHTML = ''; return; }
+      let html = '';
+      const add = (p, label, disabled = false) => {
+        html += `<button data-page="${p}" class="px-3 py-1.5 rounded-lg text-sm border ${disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-brand-50 border-slate-300'} ${p === state.page ? 'bg-brand-600 text-white border-brand-600' : ''}" ${disabled ? 'disabled' : ''}>${label}</button>`;
+      };
+      add(state.page - 1, '← Prev', state.page <= 1);
+      const start = Math.max(1, state.page - 2);
+      const end = Math.min(state.totalPages, state.page + 2);
+      if (start > 1) { add(1, '1'); if (start > 2) html += '<span class="px-1">…</span>'; }
+      for (let i = start; i <= end; i++) add(i, String(i));
+      if (end < state.totalPages) { if (end < state.totalPages - 1) html += '<span class="px-1">…</span>'; add(state.totalPages, String(state.totalPages)); }
+      add(state.page + 1, 'Next →', state.page >= state.totalPages);
+      el.innerHTML = html;
+      el.querySelectorAll('button[data-page]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (btn.disabled) return;
+          state.page = parseInt(btn.dataset.page, 10);
+          search();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+      });
+    }
+
+    function exportData(fmt) {
+      const params = new URLSearchParams({
+        q: state.q, year: state.year, qual: state.qual, sort: state.sort, format: fmt
+      });
+      window.location.href = '/api/export?' + params;
+    }
+
+    async function resync() {
+      const btn = $('#btnResync');
+      btn.disabled = true;
+      btn.textContent = 'Syncing…';
+      try {
+        const res = await fetch('/api/resync');
+        const json = await res.json();
+        if (json.ok) {
+          await fetchMeta();
+          state.page = 1;
+          await search();
+          alert('Re-sync complete. ' + (json.meta?.count || 0) + ' records.');
+        } else {
+          alert('Re-sync failed: ' + (json.error || 'unknown'));
+        }
+      } catch (e) {
+        alert('Re-sync error: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '↻ Re-sync';
+      }
+    }
+
+    // Event bindings
+    $('#btnSearch').addEventListener('click', () => { state.page = 1; search(); });
+    $('#btnClear').addEventListener('click', () => {
+      $('#searchInput').value = ''; $('#yearInput').value = ''; $('#qualInput').value = '';
+      $('#sortSelect').value = 'name_asc'; state.page = 1; search();
+    });
+    $('#btnExportCsv').addEventListener('click', () => exportData('csv'));
+    $('#btnExportJson').addEventListener('click', () => exportData('json'));
+    $('#btnResync').addEventListener('click', resync);
+    $('#perPageSelect').addEventListener('change', () => { state.page = 1; search(); });
+    $('#sortSelect').addEventListener('change', () => { state.page = 1; search(); });
+
+    // Debounced live search
+    let debounceTimer;
+    ['searchInput', 'yearInput', 'qualInput'].forEach(id => {
+      $(`#${id}`).addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => { state.page = 1; search(); }, 350);
+      });
+    });
+    $('#searchInput').addEventListener('keydown', e => { if (e.key === 'Enter') { state.page = 1; search(); } });
+
+    // Init
+    fetchMeta();
+    search();
+  </script>
+</body>
+</html>
