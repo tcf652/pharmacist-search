@@ -1,66 +1,157 @@
-import requests
-from bs4 import BeautifulSoup
-import pandas as pd
-import time  # For adding delays to avoid overloading the site
+#!/usr/bin/env python3
+"""
+Scraper for HK Registered Pharmacists from PPBHK.
+Fetches all letter pages (A-Z), parses table, caches to JSON + SQLite-like JSON.
+"""
 
-def scrape_pharmacists(letter):
-    url = f"https://www.ppbhk.org.hk/eng/list_pharmacists/list.php?key={letter}"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()  # Raise error for bad responses
-    except requests.RequestException as e:
-        print(f"Error fetching {letter}: {e}")
-        return pd.DataFrame()
-    
-    soup = BeautifulSoup(response.text, 'html.parser')
-    table = soup.find('table')
-    if not table:
-        print(f"No table found for {letter}")
-        return pd.DataFrame()
-    
-    # Extract headers and rows
-    headers = [th.text.strip() for th in table.find_all('th')]
-    rows = []
-    for tr in table.find_all('tr')[1:]:  # Skip header row
-        row = [td.text.strip() for td in tr.find_all('td')]
-        if row:  # Skip empty rows
-            rows.append(row)
-    
-    df = pd.DataFrame(rows, columns=headers)
-    time.sleep(1)  # Delay to be polite to the server
-    return df
+import urllib.request
+import urllib.error
+import json
+import re
+import time
+import os
+from html.parser import HTMLParser
+from datetime import datetime, timezone
+from pathlib import Path
 
-def scrape_all_pharmacists():
-    all_dfs = []
-    for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
-        print(f"Scraping letter {letter}...")
-        df = scrape_pharmacists(letter)
-        if not df.empty:
-            all_dfs.append(df)
-    
-    if all_dfs:
-        full_df = pd.concat(all_dfs, ignore_index=True)
-        full_df.to_csv('pharmacists.csv', index=False)  # Save to CSV for reuse
-        return full_df
+DATA_DIR = Path(__file__).parent / "data"
+CACHE_FILE = DATA_DIR / "pharmacists.json"
+META_FILE = DATA_DIR / "meta.json"
+BASE_URL = "https://www.ppbhk.org.hk/eng/list_pharmacists/list.php?key={}"
+
+USER_AGENT = "Mozilla/5.0 (compatible; HKPharmacistSearch/1.0; +https://github.com/tcf652/pharmacist-search)"
+
+
+class PharmacistTableParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.in_row = False
+        self.in_td = False
+        self.current_row = []
+        self.current_cell = []
+        self.rows = []
+        self.td_count = 0
+        self.capture = False
+
+    def handle_starttag(self, tag, attrs):
+        attrs_d = dict(attrs)
+        if tag == "tr" and attrs_d.get("valign") == "top":
+            self.in_row = True
+            self.current_row = []
+            self.td_count = 0
+        elif tag == "td" and self.in_row:
+            self.in_td = True
+            self.current_cell = []
+            self.td_count += 1
+        elif tag == "br" and self.in_td:
+            self.current_cell.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag == "td" and self.in_td:
+            text = "".join(self.current_cell).strip()
+            # Normalize whitespace
+            text = re.sub(r"[ \t]+", " ", text)
+            text = re.sub(r"\n+", "\n", text).strip()
+            self.current_row.append(text)
+            self.in_td = False
+        elif tag == "tr" and self.in_row:
+            if len(self.current_row) >= 6:
+                # cols: reg, name, null, qual, null, date
+                reg = self.current_row[0]
+                name = self.current_row[1]
+                qual = self.current_row[3]
+                date = self.current_row[5]
+                if reg and reg.startswith("P"):
+                    self.rows.append({
+                        "reg_no": reg,
+                        "name": name,
+                        "qualifications": qual,
+                        "reg_date": date,
+                    })
+            self.in_row = False
+
+    def handle_data(self, data):
+        if self.in_td:
+            self.current_cell.append(data)
+
+
+def fetch_with_retry(url, retries=3, delay=2.0):
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except (urllib.error.URLError, TimeoutError) as e:
+            if attempt == retries - 1:
+                raise
+            print(f"  Retry {attempt+1}/{retries} after error: {e}")
+            time.sleep(delay * (attempt + 1))
+    return None
+
+
+def scrape_letter(letter: str) -> list:
+    url = BASE_URL.format(letter)
+    print(f"Scraping {letter} ...")
+    html = fetch_with_retry(url)
+    parser = PharmacistTableParser()
+    parser.feed(html)
+    print(f"  Found {len(parser.rows)} records")
+    return parser.rows
+
+
+def scrape_all(delay_between=1.0) -> list:
+    all_records = []
+    seen = set()
+    for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        try:
+            rows = scrape_letter(letter)
+            for r in rows:
+                if r["reg_no"] not in seen:
+                    seen.add(r["reg_no"])
+                    all_records.append(r)
+            time.sleep(delay_between)
+        except Exception as e:
+            print(f"Failed letter {letter}: {e}")
+    return all_records
+
+
+def save_cache(records: list):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).isoformat()
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
+    meta = {
+        "last_updated": now,
+        "count": len(records),
+        "source": "https://www.ppbhk.org.hk/eng/list_pharmacists/list.php",
+    }
+    with open(META_FILE, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+    print(f"Saved {len(records)} records to {CACHE_FILE}")
+    return meta
+
+
+def load_cache() -> tuple[list, dict]:
+    if not CACHE_FILE.exists():
+        return [], {}
+    with open(CACHE_FILE, encoding="utf-8") as f:
+        records = json.load(f)
+    meta = {}
+    if META_FILE.exists():
+        with open(META_FILE, encoding="utf-8") as f:
+            meta = json.load(f)
+    return records, meta
+
+
+def main():
+    print("Starting full scrape of PPBHK Registered Pharmacists...")
+    records = scrape_all()
+    if records:
+        meta = save_cache(records)
+        print(f"Done. Last updated: {meta['last_updated']}, total: {meta['count']}")
     else:
-        print("No data scraped.")
-        return pd.DataFrame()
+        print("No records scraped.")
 
-def search_pharmacist(df, name):
-    # Case-insensitive search on 'Name' column, handling English/Chinese
-    results = df[df['Name'].str.contains(name, case=False, na=False)]
-    if results.empty:
-        print(f"No matches found for '{name}'.")
-    else:
-        print(results.to_markdown(index=False))
 
 if __name__ == "__main__":
-    # Scrape and save data (run this once, then load from CSV for future searches)
-    df = scrape_all_pharmacists()
-    
-    # Or load from existing CSV to avoid rescraping
-    # df = pd.read_csv('pharmacists.csv')
-    
-    # Example search (replace with your input)
-    search_name = input("Enter pharmacist name to search: ")
-    search_pharmacist(df, search_name)
+    main()
